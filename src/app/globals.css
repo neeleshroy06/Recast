@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --recast-page: #d5e3d5;
+  --recast-surface: #e8f2e8;
+  --recast-surface-elevated: #ffffff;
+  --recast-accent: #0bbf0b;
+  --recast-accent-hover: #09a009;
+  --recast-accent-soft: rgba(11, 191, 11, 0.18);
+  --recast-text: #0f1f0f;
+  --recast-text-muted: #3d5c3d;
+  --recast-border: #a8c9a8;
+  --recast-header-bg: rgba(232, 242, 232, 0.45);
+  --recast-hero-glow: rgba(11, 191, 11, 0.14);
+  --recast-sticky-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9), 0 0 24px rgba(213, 227, 213, 0.9);
+  --recast-sticky-sub-shadow: 0 1px 1px rgba(255, 255, 255, 0.7);
+  --background: transparent;
+  --foreground: var(--recast-text);
+}
+
+.dark {
+  --recast-page: #052605;
+  --recast-surface: #0a330a;
+  --recast-surface-elevated: #0d3d0d;
+  --recast-accent: #0bbf0b;
+  --recast-accent-hover: #2ee02e;
+  --recast-accent-soft: rgba(11, 191, 11, 0.14);
+  --recast-text: #e8f5e8;
+  --recast-text-muted: #8fbc8f;
+  --recast-border: #1a5c1a;
+  --recast-header-bg: rgba(5, 38, 5, 0.45);
+  --recast-hero-glow: rgba(11, 191, 11, 0.1);
+  --recast-sticky-text-shadow: 0 2px 16px rgba(5, 38, 5, 0.95), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --recast-sticky-sub-shadow: 0 1px 12px rgba(5, 38, 5, 0.9);
+  --background: transparent;
+  --foreground: var(--recast-text);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Layered gradients + SVG noise (no raster assets) */
+/* Framer Motion useScroll() uses document.scrollingElement (<html>) as the scroll container; it must not be position:static for dev warnings. */
+html {
+  position: relative;
+}
+
+body {
+  position: relative;
+  min-height: 100%;
+  background: transparent;
+  color: var(--recast-text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(ellipse 100% 70% at 85% 8%, rgba(11, 191, 11, 0.22), transparent 52%),
+    radial-gradient(ellipse 80% 55% at 15% 90%, rgba(61, 92, 61, 0.18), transparent 48%),
+    radial-gradient(ellipse 60% 45% at 50% 45%, rgba(200, 230, 200, 0.35), transparent 65%),
+    linear-gradient(168deg, #e8f2e8 0%, #d5e3d5 38%, #c5d9c5 72%, #d5e3d5 100%);
+}
+
+html.dark body::before {
+  background:
+    radial-gradient(ellipse 95% 65% at 88% 5%, rgba(11, 191, 11, 0.18), transparent 55%),
+    radial-gradient(ellipse 75% 50% at 10% 85%, rgba(5, 20, 5, 0.85), transparent 50%),
+    radial-gradient(ellipse 55% 40% at 48% 42%, rgba(15, 55, 15, 0.5), transparent 60%),
+    linear-gradient(165deg, #031a03 0%, #052605 35%, #083008 70%, #052605 100%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.42;
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+html.dark body::after {
+  opacity: 0.38;
+  mix-blend-mode: soft-light;
+}
