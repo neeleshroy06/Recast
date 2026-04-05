@@ -80,6 +80,8 @@ export function useGeminiLiveDocument() {
   const [micMuted, setMicMuted] = useState(false);
   const [heardText, setHeardText] = useState("");
   const [replyText, setReplyText] = useState("");
+  /** PDF text when a live session starts (medication export + critical steps). */
+  const [documentExtractedText, setDocumentExtractedText] = useState("");
   const [inputMode, setInputMode] = useState<LiveInputMode>("voice");
 
   const sessionRef = useRef<Session | null>(null);
@@ -150,6 +152,7 @@ export function useGeminiLiveDocument() {
       setError(null);
       setHeardText("");
       setReplyText("");
+      setDocumentExtractedText("");
       micMutedRef.current = false;
       setMicMuted(false);
       inputModeRef.current = "voice";
@@ -157,6 +160,7 @@ export function useGeminiLiveDocument() {
 
       try {
         const text = await extractPdfText(pdfUrl);
+        setDocumentExtractedText(text.slice(0, 96_000));
         const weak = isWeakTextContent(text);
         let jpegBase64: string | null = null;
         if (weak) {
@@ -345,6 +349,7 @@ export function useGeminiLiveDocument() {
     micMuted,
     heardText,
     replyText,
+    documentExtractedText,
     inputMode,
     startSession,
     stopSession,

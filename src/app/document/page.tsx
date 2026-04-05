@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/AppHeader";
 import { AslFingerspellingPanel } from "@/components/AslFingerspellingPanel";
 import { GeminiLiveDocumentProvider } from "@/components/GeminiLiveDocumentProvider";
+import { CriticalActionsPanel } from "@/components/CriticalActionsPanel";
+import { MedicationCalendarExport } from "@/components/MedicationCalendarExport";
 import { TalkAboutDocumentControls } from "@/components/TalkAboutDocumentControls";
 import { usePdfDocument } from "@/components/PdfDocumentContext";
 
@@ -50,29 +52,13 @@ export default function DocumentPage() {
               <TalkAboutDocumentControls pdfUrl={pdfUrl} fileName={fileName} />
               <AslFingerspellingPanel />
             </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <MedicationCalendarExport />
+
+              <CriticalActionsPanel />
+            </div>
           </GeminiLiveDocumentProvider>
-
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <section className="rounded-2xl border border-[var(--recast-border)]/60 bg-[var(--recast-surface-elevated)]/80 p-4 ring-1 ring-[var(--recast-border)]/25">
-              <h2 className="text-sm font-semibold tracking-tight text-[var(--recast-text)]">
-                Critical actions
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--recast-text-muted)]">
-                Key measures and steps to take will appear here once analysis is
-                connected.
-              </p>
-            </section>
-
-            <section className="rounded-2xl border border-[var(--recast-border)]/60 bg-[var(--recast-surface-elevated)]/80 p-4 ring-1 ring-[var(--recast-border)]/25">
-              <h2 className="text-sm font-semibold tracking-tight text-[var(--recast-text)]">
-                Focus region
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-[var(--recast-text-muted)]">
-                When you select text in the document, focused details will show
-                here.
-              </p>
-            </section>
-          </div>
         </aside>
       </main>
     </div>
