@@ -1,183 +1,215 @@
-# Recast
+
+
+# Navis
 
 **Understand your care. Act with confidence.**
 
-Recast is a patient-facing web app built with [Next.js](https://nextjs.org). It helps people move beyond skimming discharge papers and visit summaries: you upload a PDF, talk about it with an AI assistant grounded in the file, see the relevant parts of the document highlighted as you chat, and export practical artifacts (medication lists, calendar reminders, pharmacy search).
+*We help patients not just read their records — but actually know what to do.*
 
-Documents stay in the browser session only—nothing is persisted on Recast’s servers after you leave.
+  
+
+
+[Next.js](https://nextjs.org)
+[React](https://react.dev)
+[TypeScript](https://www.typescriptlang.org)
+[Tailwind CSS](https://tailwindcss.com)
+
+  
+
+
+
+
+Navis is a patient-facing web app for making sense of discharge papers and visit summaries. Upload a PDF, talk with an AI assistant **grounded in your document**, watch the PDF **scroll and highlight** as the assistant responds, and export **critical next steps**, **medication lists** (PDF), **calendar reminders** (`.ics`), and **nearby pharmacies** (U.S. ZIP → Google Maps).
+
+Your file stays in the **browser session** for this app—there is **no Navis server** that stores your PDF after you leave.
 
 ---
 
-## Table of contents
+## Contents
 
+- [At a glance](#at-a-glance)
 - [What it does](#what-it-does)
-- [Features (detailed)](#features-detailed)
-- [Tech stack](#tech-stack)
-- [Architecture (high level)](#architecture-high-level)
-- [Privacy and data](#privacy-and-data)
+- [Features](#features)
+- [Tech stack & versions](#tech-stack--versions)
+- [Architecture](#architecture)
+- [Privacy & data](#privacy--data)
 - [Requirements](#requirements)
 - [Environment variables](#environment-variables)
 - [Getting started](#getting-started)
+- [Deploying (Vercel)](#deploying-vercel)
 - [npm scripts](#npm-scripts)
 - [Project structure](#project-structure)
 - [Browser permissions](#browser-permissions)
-- [Security notes for API keys](#security-notes-for-api-keys)
+- [API keys & security](#api-keys--security)
 - [Medical disclaimer](#medical-disclaimer)
-- [Roadmap (from the product UI)](#roadmap-from-the-product-ui)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## At a glance
+
+
+| Topic           | Details                                                                      |
+| --------------- | ---------------------------------------------------------------------------- |
+| **Stack**       | Next.js (App Router) · React · TypeScript · Tailwind CSS                     |
+| **PDF**         | PDF.js (`pdfjs-dist`), custom text extraction & transcript-driven highlights |
+| **Live AI**     | Google Gemini Live (`gemini-3.1-flash-live-preview` via `@google/genai`)     |
+| **Extractions** | Groq (`llama-3.3-70b-versatile`) and/or Gemini (`gemini-2.0-flash`)          |
+| **Extras**      | jsPDF · MediaPipe (ASL) · Framer Motion                                      |
+
 
 ---
 
 ## What it does
 
-1. **Landing** — Upload a PDF from your device. The file is held in memory via an object URL and associated with your session.
-2. **Document workspace** — A split layout: PDF viewer on the left (large screens) or top (small screens), tools and panels on the right.
-3. **Optional AI** — With a Google API key, you can start a **live voice session** (Gemini Live) that reads your document, answers questions, and drives **scroll/highlight** actions on the PDF from the conversation transcript.
-4. **Extractions** — With Google and/or Groq keys, the app can extract **critical next steps** and **medication schedules** (JSON via LLM), then offer **PDF** and **ICS** downloads.
-5. **Pharmacies** — Enter a U.S. ZIP to open Google Maps with a pharmacy search (no maps API key required).
+1. **Landing** — Upload a PDF. First-time upload can show a **privacy brief**; the file is held in memory (blob URL) for the session.
+2. **Document workspace** — Split layout: **PDF viewer** (left on large screens, top on small) and **tools** in the side column.
+3. **Live voice (optional)** — With a Google API key, start **Talk about this document**: Gemini Live reads your document context, answers questions, and the UI **parses the assistant’s transcript** to **scroll** and **highlight** on the PDF.
+4. **Extractions** — With Google and/or Groq keys, **Critical next steps** and **medication schedule** JSON extractions; downloads for **PDF** and **ICS** where applicable.
+5. **Pharmacies** — Valid **5-digit U.S. ZIP** opens a **Google Maps** search URL (no Maps API key in-app).
 
 ---
 
-## Features (detailed)
+## Features
 
-### PDF upload and session-only storage
+### PDF upload & session-only storage
 
-- Accepts `.pdf` files from the file picker (home and header “Re-upload” on the document page).
-- The PDF is exposed to the app as a blob URL; revoking happens when replacing or clearing. There is **no** server-side document store in this codebase.
+- `.pdf` from the file picker on the home page or **Re-upload** in the header on `/document`.
+- No server-side document database in this repository—the PDF is a **blob URL** in the browser.
 
-### PDF rendering and interactive highlights
+### PDF rendering & highlights
 
-- Uses **PDF.js** to render pages and text layers.
-- Builds a **document index** (per PDF): page text, normalized text for search, detected headings, medication-like terms, and short page summaries for the live model’s system instruction.
-- A **transcript parser** watches the assistant’s spoken/text output and triggers:
-  - **Scroll to page** when the model references page numbers (digits or words).
-  - **Highlight spans** when quoted phrases, headings, or medication-style patterns appear—mapped onto the text layer with normalization and fallback matching.
+- **PDF.js** renders pages and a text layer.
+- A **document index** captures page text, normalized search text, headings, medication-like terms, and short summaries for the live model.
+- A **transcript parser** reacts to the assistant’s output: **jump to page** (digits or words), **highlight spans** (quotes, headings, med-style patterns).
 
-### “Talk about this document” (Gemini Live)
+### Talk about this document (Gemini Live)
 
-- Connects to **Google’s Gemini Live** API (`@google/genai`) with model `gemini-3.1-flash-live-preview`.
-- **Audio in**: microphone PCM at 16 kHz; configurable VAD (start/end sensitivity, silence duration).
-- **Audio out**: decoded PCM chunks played through a small **Web Audio** player; unlock happens in the same user gesture as starting the session to avoid silent output on strict browsers.
-- **Text in**: extracted PDF text is truncated locally to **60,000 characters** (`extractPdfText` in `pdfExtract.ts`); that string plus a **document map** (page summaries, up to ~8k chars in the system instruction) is sent to Gemini. If text extraction is weak, the **first page may be sent as a JPEG** for vision-grounded conversation. The **raw PDF file bytes** are not uploaded to Gemini; only derived text and optionally one page image.
-- **System instruction** includes a “document map” from the index so the model can reference pages and headings consistently.
-- **Transcripts**: input and output transcription are shown in the UI when available.
-- **Controls**: mute/unmute (voice mode), stop session, ASL mode (see below).
+- **Model:** `gemini-3.1-flash-live-preview` (`useGeminiLiveDocument.ts`).
+- **Audio:** mic PCM at 16 kHz; playback via Web Audio (user gesture unlock).
+- **Context:** up to **60,000 characters** of extracted text plus a **document map** in the system instruction; if extraction is weak, the **first page may be sent as a JPEG**. Raw PDF bytes are **not** uploaded wholesale.
+- **PHI handling:** text sent to Gemini is processed through **PHI redaction** (`phiRedaction.ts`); the UI can show a count of redacted items before sending.
+- **Controls:** mute/unmute, stop session, **ASL mode** (see below).
 
 ### Critical next steps
 
-- After document text is available from a live session, **Critical next steps** calls an extractor (Groq or Gemini, depending on env) and shows a numbered list.
-- Uses structured JSON output (`gemini-2.0-flash` or Groq `llama-3.3-70b-versatile` with `response_format` / MIME type as appropriate).
+- Runs when document text is available; uses **Groq** or **Gemini** per env (`extractCriticalActions.ts`).
+- **Gemini:** `gemini-2.0-flash` · **Groq:** `llama-3.3-70b-versatile`.
 
-### Medication list (PDF) and reminders (.ics)
+### Medications & calendar
 
-- **Input context**: document text plus live **heard** and **reply** transcript text, so clarifications from chat can improve extraction.
-- Produces structured medication data, then:
-  - **PDF** via **jsPDF** + **jspdf-autotable** (sortable medication list).
-  - **ICS** via a small builder for calendar import (Google Calendar, Apple Calendar, etc.) when reminder times exist.
+- Uses document text plus **heard / reply** transcript when available (`extractMedicationSchedule.ts`).
+- **PDF** via **jsPDF** + **jspdf-autotable** · **ICS** via a small builder.
+- Provider: `NEXT_PUBLIC_MEDICATION_EXTRACT_PROVIDER` — `auto`  `groq`  `gemini` (`auto` prefers Groq when its key is set).
 
-Provider selection mirrors critical actions: `NEXT_PUBLIC_MEDICATION_EXTRACT_PROVIDER` (`auto` | `groq` | `gemini`) with `auto` preferring Groq when its key is set.
+### Pharmacies
 
-### Find nearby pharmacies
+- ZIP validation, then opens Google Maps via `googleMapsPharmaciesNearZip` in `lib/maps/externalMapLinks.ts` (search query `pharmacies near {zip}`).
 
-- Validates a **5-digit U.S. ZIP**, then navigates to a **Google Maps search** URL (`pharmacies near {zip}`). No backend geocoding; opens the user’s browser/maps app.
+### ASL fingerspelling
 
-### ASL fingerspelling assist (camera)
+- **MediaPipe** hand landmarks + letter classification; optional calibration under `public/asl/`.
+- In ASL mode the mic is off; spelled text can be sent into the live session.
 
-- Optional **MediaPipe** hand landmarks + custom **letter classification** (including calibration JSON under `public/asl/`).
-- User can spell in **ASL mode**: microphone is muted, camera captures frames; letters are inferred over a short window and can be **sent as text** into the live session after idle thresholds (space / send).
-- Intended as an accessibility-oriented input path alongside voice.
+### Landing & UI
 
-### Landing experience
-
-- Hero, **Upload PDF**, disabled **Use extension** (placeholder).
-- **Scroll-driven feature section** (Framer Motion): sticky narrative with one feature at a time, or a **static list** when the user prefers reduced motion.
-
-### Theming
-
-- **Light/dark** toggle with persistence in `localStorage` and a **beforeInteractive** script to avoid flash of wrong theme.
+- Hero, **Upload PDF**, and a disabled **View demo** (coming soon).
+- **Features** section: Framer Motion scroll narrative, or a static list when **reduced motion** is preferred.
+- **Theme:** light/dark toggle, `localStorage`, and a `beforeInteractive` script to reduce theme flash.
+- **Branding:** UI wordmark uses **DM Serif Display**; body UI uses **Geist** / **Geist Mono** (`layout.tsx`).
 
 ---
 
-## Tech stack
+## Tech stack & versions
 
-| Area | Choice |
-|------|--------|
-| Framework | Next.js 16 (App Router), React 19 |
-| Language | TypeScript |
-| Styling | Tailwind CSS 4 |
-| Motion | Framer Motion |
-| PDF | pdfjs-dist, custom text extraction |
-| Live AI | `@google/genai` (Gemini Live) |
-| PDF export | jspdf, jspdf-autotable |
-| Calendar | Custom `.ics` builder |
-| Vision / hands | `@mediapipe/tasks-vision`, TensorFlow.js (where used) |
-| Icons | lucide-react |
+Pinned dependency versions (see `package.json`):
 
----
 
-## Architecture (high level)
+| Area         | Package                     | Version         |
+| ------------ | --------------------------- | --------------- |
+| Framework    | `next`                      | 16.2.2          |
+| UI           | `react` / `react-dom`       | 19.2.4          |
+| Language     | `typescript`                | ^5              |
+| Styling      | `tailwindcss`               | ^4              |
+| AI           | `@google/genai`             | ^1.48.0         |
+| PDF          | `pdfjs-dist`                | ^5.6.205        |
+| PDF export   | `jspdf` / `jspdf-autotable` | ^4.2.1 / ^5.0.7 |
+| Motion       | `framer-motion`             | ^12.38.0        |
+| Icons        | `lucide-react`              | ^1.7.0          |
+| Vision / ASL | `@mediapipe/tasks-vision`   | ^0.10.34        |
+| ML           | `@tensorflow/tfjs`          | ^4.22.0         |
 
-- **`PdfDocumentProvider`** — Holds `pdfUrl` + `fileName` for the current session.
-- **`GeminiLiveDocumentProvider`** — Wraps `useGeminiLiveDocument`: session lifecycle, audio I/O, `documentExtractedText` for downstream panels.
-- **`TranscriptPdfViewer`** — Renders PDF, subscribes to live transcripts, runs `TranscriptParser` → scroll/highlight.
-- **`documentIndex.ts`** — PDF → structured index + `buildLiveSystemInstruction`.
-- **`extractCriticalActions` / `extractMedicationSchedule`** — Client-side fetch to Groq or Google generateContent; shared provider env pattern.
 
 ---
 
-## Privacy and data
+## Architecture
 
-This section is written for **accuracy** (what the code actually does) and for **sensitive health information**. It is **not** legal or compliance advice.
 
-### What stays on the user’s device (Recast does not host your PDF)
+| Piece                                                  | Role                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| `PdfDocumentProvider`                                  | Session `pdfUrl` + `fileName`                            |
+| `GeminiLiveDocumentProvider`                           | Live session, audio, `documentExtractedText` for panels  |
+| `TranscriptPdfViewer`                                  | PDF + transcript → `TranscriptParser` → scroll/highlight |
+| `documentIndex.ts`                                     | Index + `buildLiveSystemInstruction`                     |
+| `extractCriticalActions` / `extractMedicationSchedule` | Client calls to Groq or Gemini                           |
 
-- The **PDF file** is loaded in the browser (blob URL). **This repository has no backend** that stores uploads.
-- **Text extraction** and **PDF rendering** run locally via PDF.js.
-- When you close the tab or navigate away, Recast’s **in-memory** copy of the session is gone. We do not persist documents in app storage for this flow.
 
-### Important: inference is **not** on-device
+---
 
-The `@google/genai` and Groq HTTP calls run **from the browser**, but the **models run on Google’s and Groq’s servers**. They are **not** scanning a file locally in the sense of “only on your laptop.” Any content you send in an API request is **processed on their infrastructure** for that request (and possibly retained or logged according to **their** policies, not Recast’s).
+## Privacy & data
 
-### What actually gets sent to third-party APIs
+This describes **what the code does**, not legal advice.
 
-| Data | Where it goes | When |
-|------|----------------|------|
-| **Extracted text** (up to **60k** chars per `extractPdfText`) + **document map** (headings/summaries in the system instruction) | **Google** (Gemini Live) | Starting “Talk about this document” |
-| **First-page JPEG** (base64) | **Google** (Gemini Live) | Only when extracted text is “weak” (scanned PDFs, etc.) |
-| **Microphone audio** (PCM) | **Google** (Gemini Live) | While the live session is active and unmuted |
-| **ASL / typed text** you send into the session | **Google** (Gemini Live) | When you use spelling or text input |
-| **Document text** (same extracted text used in-app) | **Google** and/or **Groq** | Critical steps + medication extraction requests |
-| **Chat transcripts** (`heardText` / `replyText`) | **Google** and/or **Groq** | Medication extraction only (bundled in the prompt) |
+### What stays local to Navis
 
-The **binary PDF** is **not** sent as a whole file to Gemini; **derived** text and optionally **one rasterized page** are.
+- The **PDF** is loaded in the browser (blob URL). This project has **no server/database** that stores uploads.
+- **Text extraction** and rendering use **PDF.js** on the client.
+- Closing the tab clears the **in-memory** session for this app.
 
-### “After we close the website, do they still have the document?”
+### PHI redaction before anything is sent (text)
 
-- **Recast** does not keep a copy—there is no Recast server database for the file in this codebase.
-- **Google** and **Groq** may retain **API logs**, **billing records**, or **content** under their **terms of service**, **privacy policy**, and **data retention** practices. Those can differ by product (e.g. consumer vs. enterprise), region, and settings. **Closing the tab does not guarantee** that a provider immediately deletes all traces of the request from their systems.
-- For **regulated health data** (e.g. U.S. HIPAA), using consumer or default API tiers may **not** meet requirements. You typically need **appropriate agreements** (e.g. BAA where applicable), **enterprise** offerings, **regional** endpoints, and a **formal** risk assessment—not just “we don’t store it.”
+For **text** that powers the AI features, Navis applies **client-side redaction first**, then sends the **redacted** content to Google and/or Groq. The pipeline is intentional:
 
+1. **Extract** — Full document text is read locally from the PDF (`pdfExtract.ts`).
+2. **Redact** — That string is passed through `redactPHI()` in `phiRedaction.ts`: pattern-based replacements run **in the browser** before any network call uses the document body.
+3. **Use** — The **redacted** text becomes `documentExtractedText` for extractions (critical steps, medications) and for the Gemini Live session context (together with a document map whose summaries are also passed through redaction where applicable).
+
+So for **structured text**, the default posture is: **strip identifiable and sensitive literals first, then transmit**—not the other way around.
+
+**What the redactor targets (high level).** The implementation uses explicit regex categories such as patient and contact names, physician names, **MRN** / encounter IDs, **DOB**, **SSN** (including last-four style lines), **street addresses**, **phone numbers**, insurance / member / **NPI** / **DEA** style identifiers, encounter and signature timestamps, and patient-portal line references. Matches are replaced with neutral placeholders (e.g. `[PHONE REDACTED]`), and the UI can surface a **count** (and category breakdown) of redactions before content is sent to Gemini.
+
+**Why this matters.** Third-party APIs should receive **clinical narrative** (medications, instructions, follow-up) with fewer direct identifiers attached. That reduces accidental exposure of names, numbers, and addresses in the payload **when the patterns match**.
+
+**Limits you should treat seriously.**
+
+- **Pattern-based, not perfect.** Redaction is **regex-driven**. Novel name spellings, uncommon formats, OCR quirks, or identifiers that do not match a pattern can **still appear** in outgoing text. This is **not** a guarantee of de-identification under HIPAA or other rules.
+- **Vision fallback.** If extracted text is weak, a **first-page image** may be sent for Gemini Live. That image is **not** run through the same text redaction pipeline—anything visible on the page (including names in a header) could still appear. Prefer text-first PDFs for sensitive demos.
+- **Voice and ASL.** **Speech audio** and **camera / spelled input** are not “redacted” like document text; they are processed as audio or text in the live session under Google’s terms.
+- **Medication prompts** may include **heard/reply** transcript strings; those reflect what was said in session, not a full re-redaction of the PDF.
 
 ---
 
 ## Requirements
 
-- **Node.js** (LTS recommended) and npm (or compatible package manager).
-- A modern **Chromium-, Firefox-, or Safari-class** browser with Web Audio, `getUserMedia` for mic (voice chat) and optionally camera (ASL).
+- **Node.js** (LTS) and **npm** (or compatible package manager).
+- A modern browser with **Web Audio**, `**getUserMedia`** (mic), and optionally **camera** (ASL).
 
 ---
 
 ## Environment variables
 
-Copy `.env.example` to `.env.local` and fill in values. All listed keys are **public** (`NEXT_PUBLIC_*`) and are bundled for client-side use—**restrict keys** in Google AI Studio / Groq by HTTP referrer (and never commit real keys).
+Copy `.env.example` → `.env.local`. Keys are `**NEXT_PUBLIC_*`** (exposed to the client)—**restrict by HTTP referrer** in Google AI Studio / Groq.
 
-| Variable | Purpose |
-|----------|---------|
-| `NEXT_PUBLIC_GOOGLE_API_KEY` | **Required** for “Talk about this document” (Gemini Live). Also used for JSON extractions when Groq is not selected. |
-| `NEXT_PUBLIC_GROQ_API_KEY` | Optional; used for medication/critical-step extraction when provider is `auto` (preferred if set) or `groq`. |
-| `NEXT_PUBLIC_MEDICATION_EXTRACT_PROVIDER` | `auto` (default), `groq`, or `gemini`—controls which API runs structured extractions. |
 
-The marketing site works without keys; **document AI features** need at least one valid key as described above.
+| Variable                                  | Purpose                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_GOOGLE_API_KEY`              | **Required** for Talk about this document (Gemini Live). Used for JSON extractions when Groq is not selected. |
+| `NEXT_PUBLIC_GROQ_API_KEY`                | Optional; preferred for extractions when `auto` or `groq`.                                                    |
+| `NEXT_PUBLIC_MEDICATION_EXTRACT_PROVIDER` | `auto` (default) · `groq` · `gemini`                                                                          |
+
+
+The marketing shell works **without** keys; AI features need keys as above.
 
 ---
 
@@ -186,22 +218,33 @@ The marketing site works without keys; **document AI features** need at least on
 ```bash
 npm install
 cp .env.example .env.local
-# Edit .env.local — add at least NEXT_PUBLIC_GOOGLE_API_KEY for voice chat
+# Edit .env.local — set NEXT_PUBLIC_GOOGLE_API_KEY at minimum for voice chat
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), upload a PDF, then open the document page.
+Open [http://localhost:3000](http://localhost:3000), upload a PDF, and use the document workspace.
+
+---
+
+## Deploying (Vercel)
+
+1. Push the repo to **GitHub**, **GitLab**, or **Bitbucket**.
+2. Import the project at [vercel.com](https://vercel.com); use the **Next.js** preset and default install/build commands.
+3. Add the same `**NEXT_PUBLIC_*`** variables under **Settings → Environment Variables**.
+4. To limit API usage to production traffic only, attach keys to the **Production** environment and omit **Preview** (preview builds will not have working AI until you add keys there).
 
 ---
 
 ## npm scripts
 
-| Script | Command |
-|--------|---------|
-| Development | `npm run dev` |
-| Production build | `npm run build` |
-| Start production server | `npm start` |
-| Lint | `npm run lint` |
+
+| Script                  | Command         |
+| ----------------------- | --------------- |
+| Development             | `npm run dev`   |
+| Production build        | `npm run build` |
+| Start production server | `npm start`     |
+| Lint                    | `npm run lint`  |
+
 
 ---
 
@@ -209,19 +252,20 @@ Open [http://localhost:3000](http://localhost:3000), upload a PDF, then open the
 
 ```
 src/
-  app/                 # Next.js App Router — pages, layout, global CSS
+  app/                 # App Router — routes, layout, global CSS
   components/          # UI: viewer, panels, header, providers, features
-  hooks/               # useGeminiLiveDocument (Gemini Live session)
+  hooks/               # useGeminiLiveDocument (Gemini Live)
   lib/
     asl/               # Hand landmarks, letter classification
-    criticalActions/   # Extract + parse critical steps
-    ics/               # Build .ics from medication reminders
-    maps/              # External map URLs (Google Maps search)
-    medications/       # Extract, parse, PDF export
-    geminiLiveAudio.ts # Mic capture + PCM playback
-    documentIndex.ts   # PDF index + live system instruction
-    pdfExtract.ts      # PDF.js loading, text + first-page image
-    transcriptParser.ts# Transcript → scroll/highlight actions
+    criticalActions/   # Critical steps extraction
+    ics/               # .ics builder
+    maps/              # Google Maps search URLs
+    medications/       # Medication extract, PDF export
+    geminiLiveAudio.ts
+    documentIndex.ts
+    pdfExtract.ts
+    transcriptParser.ts
+    phiRedaction.ts
 public/
   asl/                 # Optional ASL calibration JSON
   logo.svg
@@ -231,36 +275,44 @@ public/
 
 ## Browser permissions
 
-- **Microphone**: requested when you start a live voice session.
-- **Camera**: used only when using ASL fingerspelling mode.
+
+| Permission     | When                          |
+| -------------- | ----------------------------- |
+| **Microphone** | Starting a live voice session |
+| **Camera**     | ASL fingerspelling mode       |
+
 
 ---
 
-## Security notes for API keys
+## API keys & security
 
-- Prefer **restricted** browser keys (referrer / bundle restrictions).
-- Never ship unrestricted production keys in public repos.
-- `NEXT_PUBLIC_*` variables are exposed to the client by design.
+- Use **restricted** browser keys (referrer / HTTP restrictions).
+- Never commit production keys; `NEXT_PUBLIC_`* is visible in the client bundle by design.
 
 ---
 
 ## Medical disclaimer
 
-Recast is a **tool to help you read and organize information**. It does **not** provide medical advice, diagnosis, or treatment. Always follow your clinician’s instructions and verify medications and plans with a licensed professional or pharmacist.
+Navis is a **tool to organize and read information**. It does **not** provide medical advice, diagnosis, or treatment. Always follow your clinician and verify medications with a licensed professional or pharmacist.
 
 ---
 
-## Roadmap (from the product UI)
+## Roadmap
 
-- **Browser extension** — “Coming soon” on the home page; work with documents from the web without leaving your workflow.
-- **Dedicated multilingual UI** — The landing page describes choosing a language for explanations; the live system instruction is English-forward for plain-language explanations. A future settings control may align the product with that copy explicitly.
-
----
-
-## License / contributing
-
-This is a private project (`"private": true` in `package.json`). Adjust as needed for your team.
+- **Browser extension** — Coming soon: work with documents from the web without leaving your workflow.
+- **Multilingual UI** — Broader language controls aligned with product copy.
 
 ---
 
-Built with [Next.js](https://nextjs.org) and deployed-ready for static + Node hosting patterns supported by Next.js 16.
+## License
+
+Private project (`"private": true` in `package.json`). Adjust for your team as needed.
+
+---
+
+
+
+**Navis** · Built with [Next.js](https://nextjs.org)
+
+*npm package name: `recast`*
+

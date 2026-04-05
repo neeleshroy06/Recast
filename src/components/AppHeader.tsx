@@ -1,8 +1,14 @@
 "use client";
 
+import { DM_Serif_Display } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import { useRef } from "react";
+
+const navisWordmark = DM_Serif_Display({
+  weight: "400",
+  subsets: ["latin"],
+});
 import { Upload } from "lucide-react";
 import { usePdfDocument } from "@/components/PdfDocumentContext";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -48,7 +54,9 @@ export function AppHeader({ showReupload = false }: Props) {
               unoptimized
             />
           </div>
-          <span className="text-xl font-semibold tracking-tight text-[var(--recast-text)] sm:text-2xl">
+          <span
+            className={`${navisWordmark.className} text-xl tracking-tight text-[var(--recast-text)] sm:text-2xl`}
+          >
             Navis
           </span>
         </Link>
