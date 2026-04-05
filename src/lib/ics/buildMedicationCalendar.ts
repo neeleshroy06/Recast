@@ -1,30 +1,8 @@
+import { slotToTime } from "@/lib/medications/formatMedicationReminder";
 import type { MedicationEntry, MedicationReminder } from "@/lib/medications/types";
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
-}
-
-function slotToTime(rem: MedicationReminder): { hour: number; minute: number } {
-  if (rem.slot === "custom" && rem.timeHHMM) {
-    const m = /^(\d{1,2}):(\d{2})$/.exec(rem.timeHHMM.trim());
-    if (m) {
-      const hour = Math.min(23, Math.max(0, parseInt(m[1], 10)));
-      const minute = Math.min(59, Math.max(0, parseInt(m[2], 10)));
-      return { hour, minute };
-    }
-  }
-  switch (rem.slot) {
-    case "morning":
-      return { hour: 8, minute: 0 };
-    case "afternoon":
-      return { hour: 13, minute: 0 };
-    case "evening":
-      return { hour: 18, minute: 0 };
-    case "night":
-      return { hour: 21, minute: 0 };
-    default:
-      return { hour: 9, minute: 0 };
-  }
 }
 
 function escapeIcsText(s: string): string {

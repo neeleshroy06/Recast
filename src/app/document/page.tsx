@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/AppHeader";
 import { AslFingerspellingPanel } from "@/components/AslFingerspellingPanel";
 import { GeminiLiveDocumentProvider } from "@/components/GeminiLiveDocumentProvider";
 import { CriticalActionsPanel } from "@/components/CriticalActionsPanel";
+import { PharmacyFinderPanel } from "@/components/PharmacyFinderPanel";
 import { MedicationCalendarExport } from "@/components/MedicationCalendarExport";
 import { TalkAboutDocumentControls } from "@/components/TalkAboutDocumentControls";
 import { TranscriptPdfViewer } from "@/components/TranscriptPdfViewer";
@@ -54,6 +55,8 @@ export default function DocumentPage() {
               <MedicationCalendarExport />
 
               <CriticalActionsPanel />
+
+              <PharmacyFinderPanel />
             </div>
           </aside>
         </main>

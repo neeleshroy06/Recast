@@ -49,7 +49,7 @@ const FEATURES: FeatureItem[] = [
     icon: MapPinned,
     title: "Find nearby pharmacies",
     description:
-      "Search by ZIP code or current location and jump straight to nearby pharmacies on the map.",
+      "Enter a U.S. ZIP to open Google Maps with a search for pharmacies near that area.",
   },
   {
     icon: BookOpen,

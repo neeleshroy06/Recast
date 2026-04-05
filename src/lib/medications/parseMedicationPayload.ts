@@ -1,11 +1,18 @@
-import type { MedicationEntry, MedicationSchedulePayload, ReminderSlot } from "@/lib/medications/types";
+import type {
+  MedicationEntry,
+  MedicationListRole,
+  MedicationSchedulePayload,
+  ReminderSlot,
+} from "@/lib/medications/types";
 
 const VALID_SLOTS = new Set<ReminderSlot>(["morning", "afternoon", "evening", "night", "custom"]);
 const VALID_REC = new Set(["daily", "weekdays", "weekly"]);
+const VALID_LIST_ROLES = new Set<MedicationListRole>(["current", "new", "unspecified"]);
 
 export const MEDICATION_EXTRACT_SYSTEM_PROMPT = `You extract structured medication schedules from medical document text and optional chat context.
 Rules:
 - Only include medications that are clearly prescribed or listed in the document or conversation.
+- Set listRole per medication: "current" = patient is already taking / home medications / continued; "new" = newly started, added, or suggested in this visit or note; "unspecified" = unclear.
 - For each medication, create one or more reminders using slots: morning, afternoon, evening, night, or custom.
 - Map phrases like "once daily in the morning" to one morning reminder (recurrence daily).
 - Map "twice daily" to morning + evening (or afternoon + night if clearly stated).
@@ -24,6 +31,7 @@ export const MEDICATION_EXTRACT_SCHEMA_HINT = `Return JSON with this exact shape
       "name": "string",
       "dosage": "optional string",
       "instructions": "optional string",
+      "listRole": "current" | "new" | "unspecified",
       "reminders": [
         {
           "slot": "morning" | "afternoon" | "evening" | "night" | "custom",
@@ -90,9 +98,14 @@ export function parseAndNormalizeMedicationPayload(rawText: string | null | unde
     if (!name) continue;
     const dosage = typeof o.dosage === "string" ? o.dosage.trim() : undefined;
     const instructions = typeof o.instructions === "string" ? o.instructions.trim() : undefined;
+    const lr = o.listRole;
+    const listRole: MedicationListRole | undefined =
+      typeof lr === "string" && VALID_LIST_ROLES.has(lr as MedicationListRole)
+        ? (lr as MedicationListRole)
+        : undefined;
     const remindersRaw = o.reminders;
     if (!Array.isArray(remindersRaw)) {
-      medications.push({ name, dosage, instructions, reminders: [] });
+      medications.push({ name, dosage, instructions, listRole, reminders: [] });
       continue;
     }
     const reminders: MedicationEntry["reminders"] = [];
@@ -114,7 +127,7 @@ export function parseAndNormalizeMedicationPayload(rawText: string | null | unde
         byDay,
       });
     }
-    medications.push({ name, dosage, instructions, reminders });
+    medications.push({ name, dosage, instructions, listRole, reminders });
   }
 
   return { medications };
