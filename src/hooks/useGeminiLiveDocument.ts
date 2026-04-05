@@ -16,7 +16,7 @@ import {
   type MicCapture,
 } from "@/lib/geminiLiveAudio";
 import {
-  extractPdfText,
+  extractRedactedPdfText,
   isWeakTextContent,
   renderFirstPageJpegBase64,
 } from "@/lib/pdfExtract";
@@ -25,6 +25,7 @@ import {
   buildLiveSystemInstruction,
   type DocumentIndex,
 } from "@/lib/documentIndex";
+import type { PhiRedactionSummary } from "@/lib/phiRedaction";
 
 export type LiveDocStatus = "idle" | "connecting" | "live" | "error";
 
@@ -41,6 +42,92 @@ function getModelTurnParts(msg: LiveServerMessage): unknown[] {
   return (mt?.parts as unknown[]) ?? [];
 }
 
+function getModelTurnText(msg: LiveServerMessage): string | null {
+  const parts = getModelTurnParts(msg);
+  const text = parts
+    .map((part) => {
+      const value = (part as { text?: unknown })?.text;
+      return typeof value === "string" ? value : "";
+    })
+    .join("")
+    .trim();
+
+  return text || null;
+}
+
+function normalizeLiveText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function getSuffixPrefixOverlap(previous: string, next: string): number {
+  const maxLength = Math.min(previous.length, next.length);
+  for (let length = maxLength; length > 0; length -= 1) {
+    if (previous.slice(-length) === next.slice(0, length)) {
+      return length;
+    }
+  }
+  return 0;
+}
+
+function looksLikeSameReply(previous: string, next: string): boolean {
+  if (!previous || !next) {
+    return true;
+  }
+
+  if (
+    previous === next ||
+    previous.startsWith(next) ||
+    next.startsWith(previous) ||
+    previous.includes(next) ||
+    next.includes(previous)
+  ) {
+    return true;
+  }
+
+  const sharedPrefixLength = (() => {
+    const maxLength = Math.min(previous.length, next.length);
+    let length = 0;
+    while (length < maxLength && previous[length] === next[length]) {
+      length += 1;
+    }
+    return length;
+  })();
+
+  if (sharedPrefixLength >= Math.min(24, Math.max(8, Math.floor(Math.min(previous.length, next.length) * 0.5)))) {
+    return true;
+  }
+
+  return getSuffixPrefixOverlap(previous, next) >= Math.min(18, Math.max(6, Math.floor(next.length * 0.4)));
+}
+
+function mergeStreamingText(previous: string, next: string): string {
+  const prev = normalizeLiveText(previous);
+  const current = normalizeLiveText(next);
+
+  if (!prev) {
+    return current;
+  }
+
+  if (!current) {
+    return prev;
+  }
+
+  if (prev === current || prev.includes(current)) {
+    return prev;
+  }
+
+  if (current.includes(prev)) {
+    return current;
+  }
+
+  const overlap = getSuffixPrefixOverlap(prev, current);
+  if (overlap > 0) {
+    return normalizeLiveText(`${prev}${current.slice(overlap)}`);
+  }
+
+  return normalizeLiveText(`${prev} ${current}`);
+}
+
 function isInterrupted(msg: LiveServerMessage): boolean {
   const sc = getServerContent(msg);
   return Boolean(sc?.interrupted);
@@ -53,6 +140,18 @@ function getTranscript(
   const sc = getServerContent(msg);
   const entry = sc?.[key] as Record<string, unknown> | undefined;
   return typeof entry?.text === "string" && entry.text.trim() ? entry.text : null;
+}
+
+function getTranscriptMeta(
+  msg: LiveServerMessage,
+  key: "inputTranscription" | "outputTranscription",
+): { text: string | null; finished: boolean } {
+  const sc = getServerContent(msg);
+  const entry = sc?.[key] as Record<string, unknown> | undefined;
+  return {
+    text: typeof entry?.text === "string" && entry.text.trim() ? entry.text : null,
+    finished: entry?.finished === true,
+  };
 }
 
 function hasSetupComplete(msg: LiveServerMessage): boolean {
@@ -85,8 +184,11 @@ export function useGeminiLiveDocument() {
   const [micMuted, setMicMuted] = useState(false);
   const [heardText, setHeardText] = useState("");
   const [replyText, setReplyText] = useState("");
+  const [replyTurnId, setReplyTurnId] = useState(0);
   /** PDF text when a live session starts (medication export + critical steps). */
   const [documentExtractedText, setDocumentExtractedText] = useState("");
+  const [phiRedactionSummary, setPhiRedactionSummary] = useState<PhiRedactionSummary[]>([]);
+  const [phiRedactionTotal, setPhiRedactionTotal] = useState(0);
   const [inputMode, setInputMode] = useState<LiveInputMode>("voice");
 
   const sessionRef = useRef<Session | null>(null);
@@ -94,6 +196,43 @@ export function useGeminiLiveDocument() {
   const micRef = useRef<MicCapture | null>(null);
   const micMutedRef = useRef(false);
   const inputModeRef = useRef<LiveInputMode>("voice");
+  const assistantReplyRef = useRef("");
+  const assistantTurnCanResetRef = useRef(false);
+
+  const resetAssistantReplyState = useCallback(() => {
+    assistantReplyRef.current = "";
+    assistantTurnCanResetRef.current = false;
+    setReplyText("");
+    setReplyTurnId(0);
+  }, []);
+
+  const pushAssistantReply = useCallback((incomingText: string, canResetAfterMessage: boolean) => {
+    const incoming = normalizeLiveText(incomingText);
+    if (!incoming) {
+      if (canResetAfterMessage) {
+        assistantTurnCanResetRef.current = true;
+      }
+      return;
+    }
+
+    const previous = assistantReplyRef.current;
+    const shouldStartNewTurn =
+      !previous || (assistantTurnCanResetRef.current && !looksLikeSameReply(previous, incoming));
+
+    if (shouldStartNewTurn) {
+      assistantReplyRef.current = "";
+      assistantTurnCanResetRef.current = false;
+      setReplyTurnId((current) => current + 1);
+    }
+
+    const mergedReply = mergeStreamingText(assistantReplyRef.current, incoming);
+    assistantReplyRef.current = mergedReply;
+    setReplyText(mergedReply);
+
+    if (canResetAfterMessage) {
+      assistantTurnCanResetRef.current = true;
+    }
+  }, []);
 
   const stopMicPipeline = useCallback(() => {
     try {
@@ -139,8 +278,14 @@ export function useGeminiLiveDocument() {
       /* ignore */
     }
     playerRef.current = null;
+    assistantReplyRef.current = "";
+    assistantTurnCanResetRef.current = false;
     setStatus("idle");
     setError(null);
+    setReplyText("");
+    setReplyTurnId(0);
+    setPhiRedactionSummary([]);
+    setPhiRedactionTotal(0);
   }, [stopMicPipeline]);
 
   const startSession = useCallback(
@@ -156,8 +301,10 @@ export function useGeminiLiveDocument() {
       setStatus("connecting");
       setError(null);
       setHeardText("");
-      setReplyText("");
+      resetAssistantReplyState();
       setDocumentExtractedText("");
+      setPhiRedactionSummary([]);
+      setPhiRedactionTotal(0);
       micMutedRef.current = false;
       setMicMuted(false);
       inputModeRef.current = "voice";
@@ -172,9 +319,12 @@ export function useGeminiLiveDocument() {
         await player.resume();
 
         const indexPromise = buildDocumentIndexFromUrl(pdfUrl).catch(() => null as DocumentIndex | null);
-        const text = await extractPdfText(pdfUrl);
+        const redaction = await extractRedactedPdfText(pdfUrl);
+        const text = redaction.text;
         const documentIndex = await indexPromise;
-        setDocumentExtractedText(text.slice(0, 96_000));
+        setDocumentExtractedText(text);
+        setPhiRedactionSummary(redaction.summary);
+        setPhiRedactionTotal(redaction.totalRemoved);
         const weak = isWeakTextContent(text);
         let jpegBase64: string | null = null;
         if (weak) {
@@ -227,11 +377,26 @@ export function useGeminiLiveDocument() {
               if (inputText) {
                 setHeardText(inputText);
               }
-              const outputText = getTranscript(message, "outputTranscription") ?? message.text ?? null;
+              const serverContent = getServerContent(message);
+              const outputTranscript = getTranscriptMeta(message, "outputTranscription");
+              const outputText =
+                outputTranscript.text ?? getModelTurnText(message) ?? null;
               if (outputText) {
-                setReplyText(outputText);
+                pushAssistantReply(
+                  outputText,
+                  outputTranscript.finished ||
+                    serverContent?.turnComplete === true ||
+                    serverContent?.generationComplete === true,
+                );
+              } else if (
+                outputTranscript.finished ||
+                serverContent?.turnComplete === true ||
+                serverContent?.generationComplete === true
+              ) {
+                assistantTurnCanResetRef.current = true;
               }
               if (isInterrupted(message)) {
+                assistantTurnCanResetRef.current = true;
                 playerRef.current?.flush();
                 return;
               }
@@ -310,7 +475,7 @@ export function useGeminiLiveDocument() {
         setStatus("error");
       }
     },
-    [stopSession, startMicPipeline],
+    [pushAssistantReply, resetAssistantReplyState, startMicPipeline, stopSession],
   );
 
   const sendUserText = useCallback((text: string) => {
@@ -361,7 +526,10 @@ export function useGeminiLiveDocument() {
     micMuted,
     heardText,
     replyText,
+    replyTurnId,
     documentExtractedText,
+    phiRedactionSummary,
+    phiRedactionTotal,
     inputMode,
     startSession,
     stopSession,

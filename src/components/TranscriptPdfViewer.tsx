@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGeminiLiveDocumentContext } from "@/components/GeminiLiveDocumentProvider";
 import { buildDocumentIndexFromUrl, normalizeSearchText, type DocumentIndex } from "@/lib/documentIndex";
 import { loadPdfFromUrl, loadPdfjs } from "@/lib/pdfExtract";
-import { isTranscriptContinuation, TranscriptParser, type DocumentAction } from "@/lib/transcriptParser";
+import { TranscriptParser, type DocumentAction } from "@/lib/transcriptParser";
 
 type HighlightStyle = "default" | "heading";
 
@@ -24,6 +24,12 @@ type PageViewProps = {
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getElementTopWithinContainer(container: HTMLDivElement, element: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
+  const elementRect = element.getBoundingClientRect();
+  return container.scrollTop + elementRect.top - containerRect.top;
 }
 
 function isRenderCancellation(error: unknown) {
@@ -335,7 +341,7 @@ export function TranscriptPdfViewer({
   pdfUrl: string;
   fileName: string | null;
 }) {
-  const { replyText, status } = useGeminiLiveDocumentContext();
+  const { replyText, replyTurnId, status } = useGeminiLiveDocumentContext();
   const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
   const [documentIndex, setDocumentIndex] = useState<DocumentIndex | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -346,7 +352,7 @@ export function TranscriptPdfViewer({
 
   const viewerScrollRef = useRef<HTMLDivElement | null>(null);
   const parserRef = useRef<TranscriptParser | null>(null);
-  const previousReplyRef = useRef("");
+  const activeReplyTurnRef = useRef<number | null>(null);
   const actionQueueRef = useRef(Promise.resolve());
   const responseVersionRef = useRef(0);
   const indicatorTimerRef = useRef<number | null>(null);
@@ -397,21 +403,37 @@ export function TranscriptPdfViewer({
     return null;
   }, []);
 
+  const waitForPageElement = useCallback(async (pageNumber: number) => {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const pageElement = pageElementsRef.current.get(pageNumber);
+      if (pageElement) {
+        return pageElement;
+      }
+      await sleep(100);
+    }
+    return null;
+  }, []);
+
   const scrollToPage = useCallback(
     async (pageNumber: number) => {
       const container = viewerScrollRef.current;
-      const pageElement = pageElementsRef.current.get(pageNumber);
-      if (!container || !pageElement) {
+      if (!container) {
         return;
       }
 
-      const top = Math.max(pageElement.offsetTop - 12, 0);
+      const pageElement = await waitForPageElement(pageNumber);
+      if (!pageElement) {
+        console.warn(`Unable to scroll to page ${pageNumber} because it is not rendered yet.`);
+        return;
+      }
+
+      const top = Math.max(getElementTopWithinContainer(container, pageElement) - 12, 0);
       container.scrollTo({ top, behavior: "smooth" });
       flashIndicator(pageNumber);
       setCurrentPage(pageNumber);
       await sleep(220);
     },
-    [flashIndicator],
+    [flashIndicator, waitForPageElement],
   );
 
   const highlightText = useCallback(
@@ -479,7 +501,7 @@ export function TranscriptPdfViewer({
     setPdfDocument(null);
     setDocumentIndex(null);
     setCurrentPage(1);
-    previousReplyRef.current = "";
+    activeReplyTurnRef.current = null;
     beginNewResponse();
 
     const load = async () => {
@@ -531,7 +553,7 @@ export function TranscriptPdfViewer({
 
   useEffect(() => {
     if (status === "idle" || status === "connecting") {
-      previousReplyRef.current = "";
+      activeReplyTurnRef.current = null;
       beginNewResponse();
       return;
     }
@@ -541,14 +563,13 @@ export function TranscriptPdfViewer({
       return;
     }
 
-    const previousReply = previousReplyRef.current;
-    if (!previousReply || !isTranscriptContinuation(previousReply, nextReply)) {
+    if (activeReplyTurnRef.current !== replyTurnId) {
+      activeReplyTurnRef.current = replyTurnId;
       beginNewResponse();
     }
 
-    previousReplyRef.current = nextReply;
     parserRef.current.updateTranscript(nextReply);
-  }, [beginNewResponse, replyText, status]);
+  }, [beginNewResponse, replyText, replyTurnId, status]);
 
   useEffect(() => {
     const container = viewerScrollRef.current;
@@ -567,7 +588,7 @@ export function TranscriptPdfViewer({
           continue;
         }
 
-        const distance = Math.abs(pageElement.offsetTop - midpoint);
+        const distance = Math.abs(getElementTopWithinContainer(container, pageElement) - midpoint);
         if (distance < closestDistance) {
           closestDistance = distance;
           nextPage = pageNumber;

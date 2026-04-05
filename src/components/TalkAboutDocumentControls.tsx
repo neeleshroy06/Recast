@@ -15,6 +15,7 @@ export function TalkAboutDocumentControls({ pdfUrl, fileName }: Props) {
     micMuted,
     heardText,
     replyText,
+    phiRedactionTotal,
     inputMode,
     startSession,
     stopSession,
@@ -22,6 +23,12 @@ export function TalkAboutDocumentControls({ pdfUrl, fileName }: Props) {
   } = useGeminiLiveDocumentContext();
 
   const aslActive = inputMode === "asl";
+  const phiBadge =
+    phiRedactionTotal > 0 ? (
+      <p className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-center text-xs font-medium text-emerald-700 dark:text-emerald-300">
+        {`🔒 ${phiRedactionTotal} PHI ${phiRedactionTotal === 1 ? "instance" : "instances"} removed before sending to Gemini`}
+      </p>
+    ) : null;
 
   if (status === "connecting") {
     return (
@@ -35,6 +42,7 @@ export function TalkAboutDocumentControls({ pdfUrl, fileName }: Props) {
   if (status === "live") {
     return (
       <div className="flex flex-col gap-2">
+        {phiBadge}
         <div className="flex w-full gap-2">
           <button
             type="button"
@@ -93,6 +101,7 @@ export function TalkAboutDocumentControls({ pdfUrl, fileName }: Props) {
         <MessageSquare className="h-4 w-4 shrink-0" strokeWidth={2} />
         Talk about this document
       </button>
+      {phiBadge}
       {status === "error" && error ? (
         <p className="text-xs leading-relaxed text-red-600 dark:text-red-400">{error}</p>
       ) : null}

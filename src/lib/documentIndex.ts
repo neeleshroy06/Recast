@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { loadPdfFromUrl } from "@/lib/pdfExtract";
+import { redactPHI } from "@/lib/phiRedaction";
 
 type TextLikeItem = {
   str?: string;
@@ -173,6 +174,7 @@ export async function buildDocumentIndex(pdfDocument: PDFDocumentProxy): Promise
     const headings = unique(lines.filter(isHeadingCandidate)).slice(0, 8);
     const terms = extractTerms(rawText);
     const normalizedText = normalizeSearchText(rawText);
+    const promptSummary = redactPHI(summarisePage(headings, terms)).text;
 
     pages[pageNumber] = {
       pageNumber,
@@ -180,7 +182,7 @@ export async function buildDocumentIndex(pdfDocument: PDFDocumentProxy): Promise
       normalizedText,
       headings,
       terms,
-      summary: summarisePage(headings, terms),
+      summary: promptSummary,
     };
 
     for (const heading of headings) {

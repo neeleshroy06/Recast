@@ -12,9 +12,10 @@ export type DocumentAction =
 
 type ParserCallback = (actions: DocumentAction[]) => void;
 
-const PAGE_NUMBER_PATTERN = /\bpage(?:s)?\s+(\d+)(?:\s*(?:,|and)\s*(\d+))?\b/gi;
+const PAGE_NUMBER_PATTERN =
+  /\b(?:(?:page(?:s)?|pg\.?|p\.)\s*(?:number\s*)?|p\s+)(\d+)(?:\s*(?:,|and|to|through|-)\s*(\d+))?\b/gi;
 const PAGE_WORD_PATTERN =
-  /\bpage\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/gi;
+  /\b(?:page|pg\.?)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/gi;
 const PAGE_ORDINAL_PATTERN =
   /\b(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\s+page\b/gi;
 const QUOTED_TEXT_PATTERN = /"([^"]{3,120})"/g;
@@ -74,17 +75,6 @@ function significantWords(text: string): string[] {
     .filter((word) => word.length > 2 && !STOP_WORDS.has(word));
 }
 
-export function isTranscriptContinuation(previous: string, next: string): boolean {
-  const prev = previous.trim();
-  const current = next.trim();
-
-  if (!prev || !current) {
-    return true;
-  }
-
-  return current.startsWith(prev) || prev.startsWith(current);
-}
-
 export class TranscriptParser {
   private accumulatedText = "";
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -124,16 +114,8 @@ export class TranscriptParser {
 
     let match: RegExpExecArray | null;
 
-    const pageNumberPattern = new RegExp(PAGE_NUMBER_PATTERN.source, "gi");
-    while ((match = pageNumberPattern.exec(text)) !== null) {
-      const firstPage = Number.parseInt(match[1], 10);
-      if (this.isValidPage(firstPage)) {
-        actions.push({ type: "scroll_to_page", page: firstPage, priority: 1 });
-      }
-      const secondPage = Number.parseInt(match[2] ?? "", 10);
-      if (this.isValidPage(secondPage)) {
-        actions.push({ type: "scroll_to_page", page: secondPage, priority: 3 });
-      }
+    for (const page of this.extractReferencedPages(text)) {
+      actions.push({ type: "scroll_to_page", page, priority: 1 });
     }
 
     const pageWordPattern = new RegExp(PAGE_WORD_PATTERN.source, "gi");
@@ -231,6 +213,35 @@ export class TranscriptParser {
 
   private isValidPage(page: number) {
     return Number.isFinite(page) && page >= 1 && page <= this.documentIndex.pageCount;
+  }
+
+  private extractReferencedPages(text: string): number[] {
+    const pages: number[] = [];
+    let match: RegExpExecArray | null;
+
+    const pageNumberPattern = new RegExp(PAGE_NUMBER_PATTERN.source, "gi");
+    while ((match = pageNumberPattern.exec(text)) !== null) {
+      const firstPage = Number.parseInt(match[1], 10);
+      if (this.isValidPage(firstPage)) {
+        pages.push(firstPage);
+      }
+
+      const secondPage = Number.parseInt(match[2] ?? "", 10);
+      if (this.isValidPage(secondPage)) {
+        pages.push(secondPage);
+      }
+    }
+
+    const uniquePages: number[] = [];
+    const seen = new Set<number>();
+    for (const page of pages) {
+      if (!seen.has(page)) {
+        seen.add(page);
+        uniquePages.push(page);
+      }
+    }
+
+    return uniquePages;
   }
 
   private findTextPage(text: string): number | null {
